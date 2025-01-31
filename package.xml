@@ -2,7 +2,7 @@
 <package>
   <name>coin_picker</name>
   <version>0.0.0</version>
-  <description>The rs_wrapper package</description>
+  <description>The coin_picker package</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag --> 
   <!-- Example:  -->
