@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+
+<launch>
+    <node pkg="obj_detect_node" type="obj_detect_image.py" name="obj_detect_node" output="screen" cwd="node"/>
+</launch>

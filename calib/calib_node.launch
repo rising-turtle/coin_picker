@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+
+<launch>
+    <node pkg="calib_node" type="calib_img.py" name="calib_node" output="screen" cwd="node"/>
+</launch>
