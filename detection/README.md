@@ -1,4 +1,4 @@
-# Coin detection with Jetson Nano using YOLO and RealSense
+# Coin detection using OpenCV with Jetson Nano and RealSense
 
 ## Getting Started
 
