@@ -1,0 +1,12 @@
+__pycache__/
+
+.venv
+venv/
+
+.ropeproject
+.vscode/
+
+.DS_Store
+
+detection/images
+detection/out
