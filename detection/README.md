@@ -54,7 +54,10 @@ Compare output with every variation in the pipeline.
 - [ ] YOLO: You Only Look Once ([arXiv](https://arxiv.org/pdf/1506.02640))
 
 
-## Papers on Circle Detection and Segmentation
+## Papers/Algorithms on Circle Detection and Segmentation
 
 - [x] `cv2.minEnclosingCircle`: [Smallest enclosing disks (balls and ellipsoids)](https://people.inf.ethz.ch/emo/PublFiles/SmallEnclDisk_LNCS555_91.pdf)
 - [x] Cuevas, E., Wario, F., Osuna-Enciso, V., Zaldivar, D., Pérez-Cisneros, M. Fast algorithm for multiple-circle detection on images using learning automata, IET Image Processing 6 (8) , (2012), pp. 1124-1135 ([arXiv](https://arxiv.org/pdf/1405.5531))
+- [x] "Snakes" / Active Contours
+    - [x] [Morphological Snakes](https://scikit-image.org/docs/stable/auto_examples/segmentation/plot_morphsnakes.html): Geodesic Active Contours doesn't seem to work well...MorphACWE segments "well when the pixel values of the inside and the outside regions of the object to segment have different averages" so it doesn't apply 
+- [x] Segmentation using threshholding will not work because lighting conditions may vary

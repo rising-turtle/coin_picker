@@ -5,19 +5,31 @@
 __author__ = "Yina Tang"
 __credits__ = ["Dr. He \"David\" Zhang"]
 
-
+import inspect
+import logging
 import os
+import requests
 import sys
+import time
 from typing_extensions import Sequence
+from helpers import resized, resizedImageFile
 import cv2
 from cv2.typing import MatLike
 import numpy as np
+from PIL import Image
+from PIL.ImageFile import ImageFile
+import skimage as ski
+from skimage.color import rgb2gray
+from skimage.feature import canny
+from skimage.segmentation import inverse_gaussian_gradient, morphological_geodesic_active_contour
 # from sklearn import svm
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
-
+# Set up
 directory: str = "/Users/inatang/Developer/coin_picker/detection"  # change this
 os.chdir(directory)
+logger: logging.Logger = logging.getLogger(__name__)
+logging.basicConfig(filename='detection.log', encoding='utf-8', level=logging.INFO, format='%(asctime)s %(message)s', datefmt='%Y-%m-%d %I:%M:%S %p')
 
 
 def circles(image_path: str):
@@ -159,38 +171,12 @@ def detect_ellipses(image_path: str):
     return image_out
 
 
-
-
 # USE THIS!
 def detect_circles(image_path: str, max_coins = 50, resize=True):
     """Detects and segments coins in an image using OpenCV.
 
     Returns a list of segmented coin images in RGB.
     """
-
-    def resized(image: MatLike) -> MatLike:
-        """Resizes image to output size of RealSense D405 (1280 × 720) for processing.
-
-        Also removes noise from image for better edge detection.
-
-        Reference: https://www.intelrealsense.com/depth-camera-d405/
-        """
-
-        MAX_SIZE = (1280, 720)
-        height, width = image.shape[:2]
-        aspect_ratio = width / height
-
-        if width > height:
-            new_width = MAX_SIZE[0]
-            new_height = int(new_width / aspect_ratio)
-        else:
-            new_height = MAX_SIZE[1]
-            new_width = int(new_height * aspect_ratio)
-
-        resized_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
-
-        return resized_image
-
 
     # Preprocess image
     image = cv2.imread(image_path, cv2.IMREAD_COLOR)
@@ -270,24 +256,174 @@ def detect_circles(image_path: str, max_coins = 50, resize=True):
     return image_out
 
 
-image_path = 'images/coins-distinct-44.jpg'
-max_coins = 50
-resize = True
-image = detect_circles(image_path, max_coins)
-# coins = detect_ellipses(image_path)
-# if not coins:
-#     print("No coins found")
-#     sys.exit()
+def morph_gac(image_path: str, *, num_iter=250, timer=True) -> None:
+    def store_evolution_in(lst):
+        """Returns a callback function to store the evolution of the level sets in the given list."""
+        def _store(x): lst.append(np.copy(x))
+        return _store
 
-cv2.imshow('Coins', image)
+    start_time: float = time.time()  # avoid pyright yelling at me for Unbound
+    image_name: str = image_path.split('/')[-1].split('.')[0]
+
+    # Set up
+    # print("Setting up morphological GAC segmentation...")
+    # image = np.asarray(resizedImageFile(Image.open(image_path)))  # resize image to 1280x720
+    # gray = rgb2gray(image)
+    # init_ls = np.zeros(gray.shape, dtype=np.int8)
+    # init_ls[10:-10, 10:-10] = 1
+    # evolution = []
+    # callback = store_evolution_in(evolution)
+
+    # print("Preprocessing image for MorphGAC...")
+    # preprocessed: ImageFile = inverse_gaussian_gradient(ski.util.img_as_float(gray))
+
+    # print("Running morphological GAC segmentation...")
+    # ls = morphological_geodesic_active_contour(
+    #     preprocessed_image,
+    #     num_iter=num_iter,
+    #     init_level_set=init_ls,
+    #     smoothing=1,
+    #     balloon=-1,
+    #     threshold=0.69,
+    #     iter_callback=callback,
+    # )
+
+    # ls = morphological_geodesic_active_contour(
+    #     preprocessed_image,
+    #     num_iter=num_iter,
+    #     init_level_set=init_ls,
+    #     smoothing=1,
+    #     balloon=-1,
+    #     threshold=0.69,
+    #     iter_callback=callback,
+    # )
+
+    # sliding window
+    # Set up
+    print("Setting up morphological GAC segmentation...")
+    image = np.asarray(resizedImageFile(Image.open(image_path)))  # resize image to 1280x720
+    gray = rgb2gray(image)
+    print(f"Image dimensions: {gray.shape}")
+
+    print("Preprocessing image for MorphGAC...")
+    preprocessed = inverse_gaussian_gradient(gray)
+    # plt.imshow(preprocessed, cmap="gray")
+
+    print("Creating windows for sliding...")
+    xstep, ystep = 40, 40
+    coin_width, coin_height = 80, 80
+    # windows = [preprocessed[x:x+coin_width, y:y+coin_height] for x in range(0, preprocessed.shape[0]-coin_width, xstep) for y in range(0, preprocessed.shape[1]-coin_height, ystep)]
+    # windows = np.asarray([preprocessed_imagefile.crop((x, y, x+coin_width, y+coin_height)) for x in range(preprocessed_imagefile.width-coin_width+1, xstep) for y in range(preprocessed_imagefile.height-coin_height+1, ystep)])
+
+    fig, axes = plt.subplots(1, 1, figsize=(6, 8))
+    ax = axes
+    ax.imshow(image, cmap="gray")
+    ax.set_axis_off()
+    ax.set_title(f"{image_name}_morphgac{num_iter}", fontsize=12)
+    plot = np.zeros(gray.shape, dtype=np.int8)
+
+    print("Running morphological GAC segmentation...")
+    # for i, window in enumerate(windows):
+        # print(f"Window {i+1}/{len(windows)}: ")
+    for x in range(0, preprocessed.shape[0]-coin_width, xstep):
+        for y in range(0, preprocessed.shape[1]-coin_height, ystep):
+            print(f"Window {(x, y)}")
+            window = preprocessed[x:x+coin_width, y:y+coin_height]
+
+            init_ls = np.zeros(window.shape, dtype=np.int8)
+            init_ls[10:-10, 10:-10] = 1
+            evolution = []
+            callback = store_evolution_in(evolution)
+
+            # Run morphological GAC segmentation on the window
+            # Returns a binary mask of the segmented region (in this case 80 x 80)
+            contour = morphological_geodesic_active_contour(
+                window,
+                num_iter=num_iter,
+                init_level_set=init_ls,
+                smoothing=1,
+                balloon=-1,
+                threshold=0.69,
+                iter_callback=callback,
+            )
+
+            # Pad contour to size of image
+            contour = np.pad(contour, ((x, gray.shape[0]-coin_width-x), (y, gray.shape[1]-coin_height-y)), mode='constant', constant_values=0)
+
+            # Combine contours for plotting eventually
+            plot = np.logical_or(contour, plot)
+
+        # Get the coordinates of the top-left corner of window
+
+            # xpad, ypad = i * xstep, i * ystep
+
+            # # Pad the mask to size of image
+            # print(f"beforeX: {xpad}, afterX: {gray.shape[0]-coin_width-xpad}, beforeY: {ypad}, afterY: {gray.shape[1]-coin_height-ypad}")
+            # contour = np.pad(contour, ((xpad, gray.shape[0]-coin_width-xpad), (ypad, gray.shape[1]-coin_height-ypad)), mode='constant', constant_values=0)
+            # plot = np.logical_or(contour, plot)
+
+    ax.contour(plot, [0.5], colors='r')
+
+    # Send notification to my phone through ntfy.sh
+    print("Morphological GAC segmentation complete!")
+    requests.post("https://ntfy.sh/i7t5", data="Morphological GAC segmentation complete!".encode(encoding="utf-8"))
+
+    if timer:  # I should probably just remove timer and time every time...
+        time_diff: float = time.time() - start_time
+        time_str: str = f"{time_diff:.2f}s" if time_diff < 60 else f"{(time_diff/60):.2f}min"
+        print(f"Active contours runtime: {time_str}")
+        logger.info(f"{f'morph_gac{num_iter}'.ljust(14)} {image_name.ljust(20)} {time_str}")
+        # could use inspect.currentframe().f_code.co_name to get current function name
+        # or inspect.currentframe().f_back.f_code.co_name to get calling function name
+
+    # print("Plotting...")
+    # fig, axes = plt.subplots(1, 1, figsize=(6, 8))
+    # ax = axes
+    # ax.imshow(image, cmap="gray")
+    # ax.set_axis_off()
+    # ax.contour(ls, [0.5], colors='r')
+    # ax.set_title(f"{image_name}_morphgac{num_iter}", fontsize=12)
+    filename: str = f"{image_name}_morphgac{num_iter}.jpg"
+    plt.savefig(os.path.join("out", "morph_gac", filename), bbox_inches='tight', pad_inches=0.1)
+    plt.show()
+
+
+image_path = 'images/coins-distinct-44.jpg'
+# max_coins = 50
+# resize = True
+# image = detect_circles(image_path, max_coins)
+# # coins = detect_ellipses(image_path)
+# # if not coins:
+# #     print("No coins found")
+# #     sys.exit()
+
+# cv2.imshow('Coins', image)
 
 image_name = image_path.split('/')[-1].split('.')[0]
-filename = f'{image_name}_circle_max{max_coins}{"" if resize else "_noresize"}.jpg'
-cv2.imwrite(os.path.join("out", filename), image)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+# filename = f'{image_name}_circle_max{max_coins}{"" if resize else "_noresize"}.jpg'
+# cv2.imwrite(os.path.join("out", filename), image)
+# cv2.waitKey(0)
+# cv2.destroyAllWindows()
 
 # for coin in coins:
 #     cv2.imshow('Coin', coin)
 #     cv2.waitKey(0)
 #     cv2.destroyAllWindows()
+
+num_iter: int = 250
+morph_gac(image_path, num_iter=num_iter)
+# resizedImageFile(Image.open(image_path), outpath=f'{image_name}_resized.jpg')
+
+"""
+MorphGAC
+Without resize:
+- coins-touching-8_morphgac1000 with inverse_gaussian_gradient took 15 minutes ish?
+- coins-overlapping-1_morphgac1000 with inverse_gaussian_gradient took 30 minutes...
+
+With resize
+- penny_head_morphgac1000 with inverse_gaussian_gradient took 25.55s
+- coins-touching-8_morphgac1000 with inverse_gaussian_gradient took 46.76s
+- coins-touching-8_morphgac2000 with inverse_gaussian_gradient took 1.49min
+- coins-distinct-4_morphgac250 with inverse_gaussian_gradient took 14.28s
+
+"""
