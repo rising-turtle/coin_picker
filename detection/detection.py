@@ -12,7 +12,7 @@ import requests
 import sys
 import time
 from typing_extensions import Sequence
-from helpers import resized, resizedImageFile
+from helpers import imgname, resized, resizedImageFile
 import cv2
 from cv2.typing import MatLike
 import numpy as np
@@ -201,6 +201,7 @@ def detect_circles(image_path: str, max_coins = 50, resize=True):
         return image_out
 
     # coins: list[MatLike] = []
+    coin_centers = []
     coin_edges = []
 
     # arcLength works better than contourArea
@@ -250,85 +251,107 @@ def detect_circles(image_path: str, max_coins = 50, resize=True):
     #         continue
 
     #     coins.append(masked_image)
-
-    # return coins
-
-    return image_out
+        coin_centers.append((x, y))
 
 
-def morph_gac(image_path: str, *, num_iter=250, timer=True) -> None:
+    return coin_centers
+
+    # return image_out
+
+
+def morph_gac_simple(image_path: str, * , num_iter=250) -> None:
+    """Applies the Morphological Geodesic Active Contour (MorphGAC) algorithm to an image and plots the result."""
+
+    def store_evolution_in(lst):
+        """Returns a callback function to store the evolution of the level sets in the given list."""
+        def _store(x): lst.append(np.copy(x))
+        return _store
+
+    start_time: float = time.time()
+
+    # Set up
+    print("Setting up morphological GAC segmentation...")
+    image = np.asarray(resizedImageFile(Image.open(image_path)))  # resize image to 1280x720
+    gray = rgb2gray(image)
+    init_ls = np.zeros(gray.shape, dtype=np.int8)
+    init_ls[10:-10, 10:-10] = 1
+    evolution = []
+    callback = store_evolution_in(evolution)
+
+    print("Preprocessing image for MorphGAC...")
+    preprocessed: ImageFile = inverse_gaussian_gradient(ski.util.img_as_float(gray))
+
+    print("Running morphological GAC segmentation...")
+    ls = morphological_geodesic_active_contour(
+        preprocessed,
+        num_iter=num_iter,
+        init_level_set=init_ls,
+        smoothing=1,
+        balloon=-1,
+        threshold=0.69,
+        iter_callback=callback,
+    )
+
+    image_name = imgname(image_path)
+
+    time_diff: float = time.time() - start_time
+    time_str: str = f"{time_diff:.2f}s" if time_diff < 60 else f"{(time_diff/60):.2f}min"
+    print(f"Active contours runtime: {time_str}")
+    logger.info(f"{f'morph_gac{num_iter}'.ljust(14)} {image_name.ljust(20)} {time_str}")
+
+    print("Plotting...")
+    fig, axes = plt.subplots(1, 1, figsize=(6, 8))
+    ax = axes
+    ax.imshow(image, cmap="gray")
+    ax.set_axis_off()
+    ax.contour(ls, [0.5], colors='r')
+    ax.set_title(f"{image_name}_morphgac{num_iter}", fontsize=12)
+    filename: str = f"{image_name}_morphgac{num_iter}.jpg"
+    plt.savefig(os.path.join("out", "morph_gac", filename), bbox_inches='tight', pad_inches=0.1)
+    plt.show()
+
+    # Send notification to my phone through ntfy.sh
+    requests.post("https://ntfy.sh/i7t5", data="MorphGAC complete!".encode(encoding="utf-8"))
+
+
+def morph_gac(image_path: str, *, num_iter=250, threshold=0.69, window_size=(100, 100), step=(50, 50)) -> None:
+    """
+    Applies MorphGAC to image using sliding window.
+
+    1. Divides image into overlapping windows for sliding to speed up processing
+    2. Applies MorphGAC to each window
+    3. Combines contours from each window and plots
+    """
+
     def store_evolution_in(lst):
         """Returns a callback function to store the evolution of the level sets in the given list."""
         def _store(x): lst.append(np.copy(x))
         return _store
 
     start_time: float = time.time()  # avoid pyright yelling at me for Unbound
-    image_name: str = image_path.split('/')[-1].split('.')[0]
+    image_name: str = imgname(image_path)
 
-    # Set up
-    # print("Setting up morphological GAC segmentation...")
-    # image = np.asarray(resizedImageFile(Image.open(image_path)))  # resize image to 1280x720
-    # gray = rgb2gray(image)
-    # init_ls = np.zeros(gray.shape, dtype=np.int8)
-    # init_ls[10:-10, 10:-10] = 1
-    # evolution = []
-    # callback = store_evolution_in(evolution)
-
-    # print("Preprocessing image for MorphGAC...")
-    # preprocessed: ImageFile = inverse_gaussian_gradient(ski.util.img_as_float(gray))
-
-    # print("Running morphological GAC segmentation...")
-    # ls = morphological_geodesic_active_contour(
-    #     preprocessed_image,
-    #     num_iter=num_iter,
-    #     init_level_set=init_ls,
-    #     smoothing=1,
-    #     balloon=-1,
-    #     threshold=0.69,
-    #     iter_callback=callback,
-    # )
-
-    # ls = morphological_geodesic_active_contour(
-    #     preprocessed_image,
-    #     num_iter=num_iter,
-    #     init_level_set=init_ls,
-    #     smoothing=1,
-    #     balloon=-1,
-    #     threshold=0.69,
-    #     iter_callback=callback,
-    # )
-
-    # sliding window
     # Set up
     print("Setting up morphological GAC segmentation...")
     image = np.asarray(resizedImageFile(Image.open(image_path)))  # resize image to 1280x720
     gray = rgb2gray(image)
     print(f"Image dimensions: {gray.shape}")
 
-    print("Preprocessing image for MorphGAC...")
     preprocessed = inverse_gaussian_gradient(gray)
     # plt.imshow(preprocessed, cmap="gray")
-
-    print("Creating windows for sliding...")
-    xstep, ystep = 40, 40
-    coin_width, coin_height = 80, 80
-    # windows = [preprocessed[x:x+coin_width, y:y+coin_height] for x in range(0, preprocessed.shape[0]-coin_width, xstep) for y in range(0, preprocessed.shape[1]-coin_height, ystep)]
-    # windows = np.asarray([preprocessed_imagefile.crop((x, y, x+coin_width, y+coin_height)) for x in range(preprocessed_imagefile.width-coin_width+1, xstep) for y in range(preprocessed_imagefile.height-coin_height+1, ystep)])
 
     fig, axes = plt.subplots(1, 1, figsize=(6, 8))
     ax = axes
     ax.imshow(image, cmap="gray")
     ax.set_axis_off()
-    ax.set_title(f"{image_name}_morphgac{num_iter}", fontsize=12)
+    ax.set_title(f"{image_name}_morphgacsw{num_iter}", fontsize=12)
     plot = np.zeros(gray.shape, dtype=np.int8)
 
     print("Running morphological GAC segmentation...")
-    # for i, window in enumerate(windows):
-        # print(f"Window {i+1}/{len(windows)}: ")
-    for x in range(0, preprocessed.shape[0]-coin_width, xstep):
-        for y in range(0, preprocessed.shape[1]-coin_height, ystep):
+    for x in range(0, preprocessed.shape[0]-window_size[0], step[0]):
+        for y in range(0, preprocessed.shape[1]-window_size[1], step[1]):
             print(f"Window {(x, y)}")
-            window = preprocessed[x:x+coin_width, y:y+coin_height]
+            window = preprocessed[x:x+window_size[0], y:y+window_size[1]]
 
             init_ls = np.zeros(window.shape, dtype=np.int8)
             init_ls[10:-10, 10:-10] = 1
@@ -341,51 +364,41 @@ def morph_gac(image_path: str, *, num_iter=250, timer=True) -> None:
                 window,
                 num_iter=num_iter,
                 init_level_set=init_ls,
-                smoothing=1,
+                smoothing=2,
                 balloon=-1,
-                threshold=0.69,
+                threshold=threshold,  # originally 0.69, the higher the less picky about edges
                 iter_callback=callback,
             )
 
             # Pad contour to size of image
-            contour = np.pad(contour, ((x, gray.shape[0]-coin_width-x), (y, gray.shape[1]-coin_height-y)), mode='constant', constant_values=0)
+            contour = np.pad(contour, ((x, gray.shape[0]-window_size[0]-x), (y, gray.shape[1]-window_size[1]-y)), mode='constant', constant_values=0)
 
             # Combine contours for plotting eventually
             plot = np.logical_or(contour, plot)
 
-        # Get the coordinates of the top-left corner of window
-
-            # xpad, ypad = i * xstep, i * ystep
-
-            # # Pad the mask to size of image
-            # print(f"beforeX: {xpad}, afterX: {gray.shape[0]-coin_width-xpad}, beforeY: {ypad}, afterY: {gray.shape[1]-coin_height-ypad}")
-            # contour = np.pad(contour, ((xpad, gray.shape[0]-coin_width-xpad), (ypad, gray.shape[1]-coin_height-ypad)), mode='constant', constant_values=0)
-            # plot = np.logical_or(contour, plot)
-
     ax.contour(plot, [0.5], colors='r')
 
-    # Send notification to my phone through ntfy.sh
-    print("Morphological GAC segmentation complete!")
-    requests.post("https://ntfy.sh/i7t5", data="Morphological GAC segmentation complete!".encode(encoding="utf-8"))
+    print("Morphological GAC with sliding window segmentation complete!")
 
-    if timer:  # I should probably just remove timer and time every time...
-        time_diff: float = time.time() - start_time
-        time_str: str = f"{time_diff:.2f}s" if time_diff < 60 else f"{(time_diff/60):.2f}min"
-        print(f"Active contours runtime: {time_str}")
-        logger.info(f"{f'morph_gac{num_iter}'.ljust(14)} {image_name.ljust(20)} {time_str}")
-        # could use inspect.currentframe().f_code.co_name to get current function name
-        # or inspect.currentframe().f_back.f_code.co_name to get calling function name
+    time_diff: float = time.time() - start_time
+    time_str: str = f"{time_diff:.2f}s" if time_diff < 60 else f"{(time_diff/60):.2f}min"
+    print(f"Active contours runtime: {time_str}")
+    logger.info(f"{f'morph_gacsw{num_iter}'.ljust(14)} {threshold:2f} {image_name.ljust(20)} {time_str}")
+    # could use inspect.currentframe().f_code.co_name to get current function name
+    # or inspect.currentframe().f_back.f_code.co_name to get calling function name
 
     # print("Plotting...")
     # fig, axes = plt.subplots(1, 1, figsize=(6, 8))
     # ax = axes
     # ax.imshow(image, cmap="gray")
     # ax.set_axis_off()
-    # ax.contour(ls, [0.5], colors='r')
     # ax.set_title(f"{image_name}_morphgac{num_iter}", fontsize=12)
-    filename: str = f"{image_name}_morphgac{num_iter}.jpg"
+    filename: str = f"{image_name}_morphgacsw{num_iter}_thresh{int(threshold*100)}.jpg"  # sw: sliding window
     plt.savefig(os.path.join("out", "morph_gac", filename), bbox_inches='tight', pad_inches=0.1)
     plt.show()
+
+    # Send notification to my phone through ntfy.sh
+    requests.post("https://ntfy.sh/i7t5", data="MorphGAC with sliding window complete!".encode(encoding="utf-8"))
 
 
 image_path = 'images/coins-distinct-44.jpg'
@@ -399,7 +412,7 @@ image_path = 'images/coins-distinct-44.jpg'
 
 # cv2.imshow('Coins', image)
 
-image_name = image_path.split('/')[-1].split('.')[0]
+image_name = imgname(image_path)
 # filename = f'{image_name}_circle_max{max_coins}{"" if resize else "_noresize"}.jpg'
 # cv2.imwrite(os.path.join("out", filename), image)
 # cv2.waitKey(0)
@@ -410,9 +423,13 @@ image_name = image_path.split('/')[-1].split('.')[0]
 #     cv2.waitKey(0)
 #     cv2.destroyAllWindows()
 
-num_iter: int = 250
-morph_gac(image_path, num_iter=num_iter)
-# resizedImageFile(Image.open(image_path), outpath=f'{image_name}_resized.jpg')
+num_iter: int = 100
+threshold: float = 0.9
+window_size = (100, 100)
+step = (50, 50)
+morph_gac(image_path, num_iter=num_iter, threshold=threshold, window_size=window_size, step=step)
+# morph_gac_simple(image_path, num_iter=400)
+
 
 """
 MorphGAC

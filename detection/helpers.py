@@ -2,6 +2,12 @@ import cv2
 from cv2.typing import MatLike
 from PIL import Image, ImageFile
 
+
+def imgname(image_path: str) -> str:
+    """Returns the name of the image without the extension."""
+    return image_path.split("/")[-1].split(".")[0]
+
+
 def resized(image: MatLike) -> MatLike:
     """Resizes an OpenCV or a PIL image to output size of RealSense D405 (1280 × 720) while maintaining aspect ratio.
     Automatically checks whether the image is a PIL Image or an OpenCV image and resizes it accordingly.
